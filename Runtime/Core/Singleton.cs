@@ -14,7 +14,7 @@ public class Singleton<T> where T : new()
             return _instance;
         }
     }
-    public void InstanceClear()
+    public virtual void InstanceClear()
     {
         _instance = default(T);
     } 
