@@ -1,0 +1,23 @@
+﻿using LWFramework.Core;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+/// <summary>
+/// 非热更环境主管理器
+/// </summary>
+[ManagerHotfixClass(ManagerHotfixType.NormalHotfix)]
+public class #SCRIPTNAME# : IManager
+{
+    public void Init()
+    {
+
+    }
+    public void LateUpdate()
+    {
+    }
+
+    public void Update()
+    {
+
+    }
+}

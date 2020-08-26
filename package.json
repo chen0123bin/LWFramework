@@ -1,0 +1,11 @@
+{
+  "name": "com.cb.lwframework",
+  "displayName": "LWFramework",
+  "version": "1.0.2",
+  "description": "自用工具11111",
+  "author": "chenbin",
+  "license": "MIT",
+  "unity": "2018.4",
+  "type": "library",
+  "dependencies": {}
+}

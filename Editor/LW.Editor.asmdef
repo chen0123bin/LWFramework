@@ -1,0 +1,29 @@
+{
+    "name": "LW.Editor",
+    "references": [
+        "LW.Runtime"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [
+        "Microsoft.CodeAnalysis.CSharp.dll",
+        "Microsoft.CodeAnalysis.dll",
+        "DemiEditor.dll",
+        "DemiLib.dll",
+        "Sirenix.Serialization.dll",
+        "Sirenix.OdinInspector.Editor.dll",
+        "Sirenix.OdinInspector.Attributes.dll",
+        "LitJson.dll",
+        "Sirenix.Utilities.dll",
+        "System.Collections.Immutable.dll",
+        "Sirenix.Utilities.Editor.dll",
+        "Sirenix.Serialization.Config.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": []
+}

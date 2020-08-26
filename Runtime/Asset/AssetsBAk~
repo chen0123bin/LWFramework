@@ -1,0 +1,263 @@
+﻿//
+// Assets.cs
+//
+// Author:
+//       fjy <jiyuan.feng@live.com>
+//
+// Copyright (c) 2019 fjy
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using UnityEngine;
+using Debug = UnityEngine.Debug;
+
+namespace LWFramework.Asset
+{
+    public class Assets : MonoBehaviour
+    {
+        private static string[] _bundles = new string[0];
+        private static Dictionary<string, int> _bundleAssets = new Dictionary<string, int>();
+
+        // ReSharper disable once InconsistentNaming
+        private static readonly List<AssetRequest> _assets = new List<AssetRequest>();
+
+        // ReSharper disable once InconsistentNaming
+        private static readonly List<AssetRequest> _unusedAssets = new List<AssetRequest>();
+
+        public static Dictionary<string, int> bundleAssets
+        {
+            get { return _bundleAssets; }
+        }
+
+        private static string updatePath { get; set; }
+
+        public static void Initialize(Action onSuccess, Action<string> onError)
+        {
+            var instance = FindObjectOfType<Assets>();
+            if (instance == null)
+            {
+                instance = new GameObject("Assets").AddComponent<Assets>();
+                DontDestroyOnLoad(instance.gameObject);
+            }
+
+            if (string.IsNullOrEmpty(LWUtility.dataPath)) LWUtility.dataPath = Application.streamingAssetsPath;
+
+            LWDebug.Log(string.Format("Init->assetBundleMode {0} | dataPath {1}", LWUtility.assetBundleMode, LWUtility.dataPath));
+
+            if (LWUtility.assetBundleMode)
+            {
+                updatePath = LWUtility.updatePath;
+                var platform = LWUtility.GetPlatform();
+                var path = Path.Combine(LWUtility.dataPath, Path.Combine(LWUtility.AssetBundles, platform)) +
+                           Path.DirectorySeparatorChar;
+                Bundles.OverrideBaseDownloadingUrl += Bundles_overrideBaseDownloadingURL;
+                
+                Bundles.Initialize(path, platform, () =>
+                {
+                    var asset = LoadAsync(LWUtility.AssetsManifestAsset, typeof(Manifest));
+                    asset.completed += obj =>
+                    {
+                        var manifest = obj.asset as Manifest;
+                        if (manifest == null)
+                        {
+                            if (onError != null) onError("manifest == null");
+                            return;
+                        }
+
+                        if (string.IsNullOrEmpty(LWUtility.downloadURL))
+                            LWUtility.downloadURL = manifest.downloadURL;
+                        Bundles.activeVariants = manifest.activeVariants;
+                        _bundles = manifest.bundles;
+                        var dirs = manifest.dirs;
+                        _bundleAssets = new Dictionary<string, int>(manifest.assets.Length);
+                        for (int i = 0, max = manifest.assets.Length; i < max; i++)
+                        {
+                            var item = manifest.assets[i];
+                            _bundleAssets[string.Format("{0}/{1}", dirs[item.dir], item.name)] = item.bundle;
+                        }
+
+                        if (onSuccess != null)
+                            onSuccess();
+                        obj.Release();
+                    };
+                }, onError);
+            }
+            else
+            {
+                if (onSuccess != null)
+                    onSuccess();
+            }
+        }
+
+        public static string[] GetAllDependencies(string path)
+        {
+            string assetBundleName;
+            return GetAssetBundleName(path, out assetBundleName) ? Bundles.GetAllDependencies(assetBundleName) : null;
+        }
+
+        public static SceneAssetRequest LoadScene(string path, bool async, bool addictive)
+        {
+            var asset = async ? new SceneAssetAsyncRequest(path, addictive) : new SceneAssetRequest(path, addictive);
+            GetAssetBundleName(path, out asset.assetBundleName);
+            asset.Load();
+            asset.Retain();
+            _assets.Add(asset);
+            return asset;
+        }
+
+        public static void UnloadScene(string path)
+        {
+            for (int i = 0, max = _assets.Count; i < max; i++)
+            {
+                var item = _assets[i];
+                if (!item.name.Equals(path))
+                    continue;
+                Unload(item);
+                break;
+            }
+        }
+
+        public static AssetRequest Load(string path, Type type)
+        {
+            return Load(path, type, false);
+        }
+
+        public static AssetRequest LoadAsync(string path, Type type)
+        {
+            return Load(path, type, true);
+        }
+
+        // ReSharper disable once MemberCanBePrivate.Global
+        public static void Unload(AssetRequest asset)
+        {
+            asset.Release();
+            for (var i = 0; i < _unusedAssets.Count; i++)
+            {
+                var item = _unusedAssets[i];
+                if (!item.name.Equals(asset.name))
+                    continue;
+                item.Unload();
+                _unusedAssets.RemoveAt(i);
+                return;
+            }
+        }
+
+        private void Update()
+        {
+            for (var i = 0; i < _assets.Count; i++)
+            {
+                var item = _assets[i];
+                if (item.Update() || !item.IsUnused())
+                    continue;
+                _unusedAssets.Add(item);
+                _assets.RemoveAt(i);
+                i--;
+            }
+
+            for (var i = 0; i < _unusedAssets.Count; i++)
+            {
+                var item = _unusedAssets[i];
+                item.Unload();
+                LWDebug.Log("Unload->" + item.name);
+            }
+
+            _unusedAssets.Clear();
+
+            Bundles.Update();
+        }
+
+       
+
+        private static AssetRequest Load(string path, Type type, bool async)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogError("invalid path");
+                return null;
+            }
+
+            for (int i = 0, max = _assets.Count; i < max; i++)
+            {
+                var item = _assets[i];
+                if (!item.name.Equals(path))
+                    continue;
+                item.Retain();
+                return item;
+            }
+
+            string assetBundleName;
+            AssetRequest asset;
+            if (GetAssetBundleName(path, out assetBundleName))
+            {
+                asset = async ? new BundleAssetAsyncRequest(assetBundleName) : new BundleAssetRequest(assetBundleName);
+            }
+            else
+            {
+                if (path.StartsWith("http://", StringComparison.Ordinal) ||
+                    path.StartsWith("https://", StringComparison.Ordinal) ||
+                    path.StartsWith("file://", StringComparison.Ordinal) ||
+                    path.StartsWith("ftp://", StringComparison.Ordinal) ||
+                    path.StartsWith("jar:file://", StringComparison.Ordinal)) 
+                {
+                    asset = new WebAssetRequest();
+                }
+                
+                else {
+                    asset = new AssetRequest();
+                   
+                }
+                
+            }
+          
+            asset.name = path;
+            asset.assetType = type;
+            _assets.Add(asset);
+            asset.Load();
+            asset.Retain();
+
+            LWDebug.Log(string.Format("Load->{0}|{1}", path, assetBundleName));
+            return asset;
+        }
+
+        private static bool GetAssetBundleName(string path, out string assetBundleName)
+        {
+            if (path.Equals(LWUtility.AssetsManifestAsset))
+            {
+                assetBundleName = Path.GetFileNameWithoutExtension(path).ToLower();
+                return true;
+            }
+
+            assetBundleName = null;
+            int bundle;
+            if (!_bundleAssets.TryGetValue(path, out bundle))
+                return false;
+            assetBundleName = _bundles[bundle];
+            return true;
+        }
+
+        private static string Bundles_overrideBaseDownloadingURL(string bundleName)
+        {
+            return !File.Exists(Path.Combine(updatePath, bundleName)) ? null : updatePath;
+        }
+    }
+}
